@@ -1,0 +1,10 @@
+# Optional YAML overlay for non-secret defaults.
+# Copy to config.yaml and edit; environment variables can be referenced as ${VAR}.
+
+default_pairs:
+  - coinbase:BTC-USD
+  - coinbase:ETH-USD
+  - coinbase:SOL-USD
+
+default_intervals:
+  - 1d
