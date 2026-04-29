@@ -12,21 +12,28 @@ from signal_trck.storage.models import Candle
 
 
 async def test_migrations_run_to_latest(tmp_path: Path) -> None:
+    """Schema_version table records every applied migration in order."""
+    from signal_trck.storage.schema import MIGRATIONS
+
+    expected = list(range(1, len(MIGRATIONS) + 1))
     db = tmp_path / "fresh.db"
     async with Store.open(db_path=db) as store:
         cur = await store.conn.execute("SELECT version FROM schema_version ORDER BY version")
         rows = await cur.fetchall()
-        assert [r[0] for r in rows] == [1]
+        assert [r[0] for r in rows] == expected
 
 
 async def test_migrations_idempotent_on_reopen(tmp_path: Path) -> None:
+    from signal_trck.storage.schema import MIGRATIONS
+
+    expected = len(MIGRATIONS)
     db = tmp_path / "ro.db"
     async with Store.open(db_path=db):
         pass
     async with Store.open(db_path=db) as store:
         cur = await store.conn.execute("SELECT COUNT(*) FROM schema_version")
         n = (await cur.fetchone())[0]  # type: ignore[index]
-        assert n == 1, "reopening should not re-apply migrations"
+        assert n == expected, "reopening should not re-apply migrations"
 
 
 async def test_add_pair_idempotent(store: Store) -> None:

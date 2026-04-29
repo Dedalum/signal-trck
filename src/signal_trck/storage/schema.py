@@ -47,6 +47,25 @@ MIGRATIONS: list[list[str]] = [
         ON candles(pair_id, interval, ts_utc DESC)
         """,
     ],
+    # v2 — indicator_values cache (rows, not blobs — see plan §"Architectural decision")
+    [
+        """
+        CREATE TABLE IF NOT EXISTS indicator_values (
+            pair_id TEXT NOT NULL,
+            interval TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_hash TEXT NOT NULL,
+            ts_utc INTEGER NOT NULL,
+            value REAL NOT NULL,
+            PRIMARY KEY (pair_id, interval, name, params_hash, ts_utc),
+            FOREIGN KEY (pair_id) REFERENCES pairs(pair_id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_indicator_values_lookup
+        ON indicator_values(pair_id, interval, name, params_hash, ts_utc DESC)
+        """,
+    ],
 ]
 
 

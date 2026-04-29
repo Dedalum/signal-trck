@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from signal_trck import __version__, log
-from signal_trck.cli import dev, fetch, pair
+from signal_trck.cli import dev, fetch, indicators, levels, pair
 
 app = typer.Typer(
     name="signal-trck",
@@ -16,7 +16,9 @@ app = typer.Typer(
 
 app.add_typer(pair.app, name="pair", help="Manage tracked crypto pairs.")
 app.add_typer(dev.app, name="dev", help="Developer utilities.")
+app.add_typer(indicators.app, name="indicators", help="Compute indicator series.")
 app.command("fetch")(fetch.fetch)
+app.command("levels")(levels.levels)
 
 
 @app.callback()
