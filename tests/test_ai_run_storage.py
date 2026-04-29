@@ -31,11 +31,12 @@ async def test_write_and_list(store: Store) -> None:
     runs = await store.list_ai_runs("test:T-USD")
     assert len(runs) == 1
     r = runs[0]
-    assert r["chart_slug"] == "chart-2"
-    assert r["model"] == "claude-opus-4-7"
-    assert r["provider"] == "anthropic"
-    assert json.loads(r["sr_candidates_selected"]) == ["sr-1"]
-    assert json.loads(r["sr_candidates_presented"])[0]["id"] == "sr-1"
+    assert r.chart_slug == "chart-2"
+    assert r.model == "claude-opus-4-7"
+    assert r.provider == "anthropic"
+    # JSON columns are parsed at the storage boundary.
+    assert r.sr_candidates_selected == ["sr-1"]
+    assert r.sr_candidates_presented[0]["id"] == "sr-1"
 
 
 async def test_list_orders_newest_first(store: Store) -> None:
@@ -56,7 +57,7 @@ async def test_list_orders_newest_first(store: Store) -> None:
             ran_at=base + i,
         )
     runs = await store.list_ai_runs("test:T-USD")
-    assert [r["chart_slug"] for r in runs] == ["chart-4", "chart-3", "chart-2"]
+    assert [r.chart_slug for r in runs] == ["chart-4", "chart-3", "chart-2"]
 
 
 async def test_list_respects_limit(store: Store) -> None:

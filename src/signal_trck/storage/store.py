@@ -7,6 +7,7 @@ manage lifecycle explicitly with ``store = Store(); await store.connect();
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ import aiosqlite
 import structlog
 
 from signal_trck import paths
-from signal_trck.storage.models import Candle, Pair
+from signal_trck.storage.models import AIRunRow, Candle, Pair
 from signal_trck.storage.schema import MIGRATIONS, SCHEMA_VERSION_DDL
 
 log = structlog.get_logger(__name__)
@@ -251,6 +252,75 @@ class Store:
         r = await cur.fetchone()
         return r[0] if r and r[0] is not None else None
 
+    # ---- indicator_values cache ----
+
+    async def get_indicator_rows(
+        self,
+        pair_id: str,
+        interval: str,
+        names: list[str],
+        params_hash: str,
+    ) -> dict[str, list[tuple[int, float]]]:
+        """Fetch indicator rows grouped by cache name (e.g. ``"SMA"``,
+        ``"MACD.macd"``).
+
+        Returns a dict with one entry per name in ``names``. Names with no
+        cached rows yield an empty list. Within each list, entries are
+        ascending by ``ts_utc``.
+        """
+        if not names:
+            return {}
+        placeholders = ",".join("?" for _ in names)
+        sql = (
+            "SELECT name, ts_utc, value FROM indicator_values "
+            f"WHERE pair_id = ? AND interval = ? AND params_hash = ? "
+            f"AND name IN ({placeholders}) "
+            "ORDER BY name, ts_utc ASC"
+        )
+        args = [pair_id, interval, params_hash, *names]
+        cur = await self.conn.execute(sql, args)
+        rows = await cur.fetchall()
+        out: dict[str, list[tuple[int, float]]] = {n: [] for n in names}
+        for name, ts, value in rows:
+            out.setdefault(name, []).append((int(ts), float(value)))
+        return out
+
+    async def replace_indicator_rows(
+        self,
+        pair_id: str,
+        interval: str,
+        names: list[str],
+        params_hash: str,
+        rows: list[tuple[str, str, str, str, int, float]],
+    ) -> None:
+        """Atomically replace cached indicator rows for the given ``names``.
+
+        Each row is ``(pair_id, interval, name, params_hash, ts_utc, value)``.
+        Delete + insert run in a single transaction so a crash mid-way leaves
+        the cache in its previous state, not partially populated.
+        """
+        if not names:
+            return
+        placeholders = ",".join("?" for _ in names)
+        await self.conn.execute(
+            f"""
+            DELETE FROM indicator_values
+            WHERE pair_id = ? AND interval = ? AND params_hash = ?
+              AND name IN ({placeholders})
+            """,
+            [pair_id, interval, params_hash, *names],
+        )
+        if rows:
+            await self.conn.executemany(
+                """
+                INSERT INTO indicator_values
+                    (pair_id, interval, name, params_hash, ts_utc, value)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        await self.conn.commit()
+
     # ---- ai_runs ----
 
     async def write_ai_run(
@@ -295,11 +365,11 @@ class Store:
         await self.conn.commit()
         return int(cur.lastrowid or 0)
 
-    async def list_ai_runs(self, pair_id: str, *, limit: int | None = None) -> list[dict]:
+    async def list_ai_runs(self, pair_id: str, *, limit: int | None = None) -> list[AIRunRow]:
         """Return AI run audit rows for a pair, newest first.
 
-        Returned dicts contain all columns; JSON columns are returned as raw
-        strings so callers can decide whether to parse.
+        JSON columns are parsed at the boundary; callers receive typed
+        Python lists, not raw JSON strings.
         """
         sql = (
             "SELECT run_id, pair_id, chart_slug, model, provider, "
@@ -314,18 +384,20 @@ class Store:
             params.append(limit)
         cur = await self.conn.execute(sql, params)
         rows = await cur.fetchall()
-        cols = [
-            "run_id",
-            "pair_id",
-            "chart_slug",
-            "model",
-            "provider",
-            "prompt_template_version",
-            "system_prompt_hash",
-            "context_file_sha256",
-            "context_preview",
-            "sr_candidates_presented",
-            "sr_candidates_selected",
-            "ran_at",
+        return [
+            AIRunRow(
+                run_id=int(r[0]),
+                pair_id=r[1],
+                chart_slug=r[2],
+                model=r[3],
+                provider=r[4],
+                prompt_template_version=r[5],
+                system_prompt_hash=r[6],
+                context_file_sha256=r[7],
+                context_preview=r[8],
+                sr_candidates_presented=json.loads(r[9]),
+                sr_candidates_selected=json.loads(r[10]),
+                ran_at=int(r[11]),
+            )
+            for r in rows
         ]
-        return [dict(zip(cols, r, strict=True)) for r in rows]

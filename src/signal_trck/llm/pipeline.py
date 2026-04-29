@@ -118,9 +118,7 @@ def analyze_chart(
     validated: ChartAnalysis | None = None
     for attempt in range(max_retries + 1):
         try:
-            response = client.analyze(
-                system=system, user=user, response_model=ChartAnalysis
-            )
+            response = client.analyze(system=system, user=user, response_model=ChartAnalysis)
             validate_grounding(response, candidates)
             validated = response
             break
@@ -143,8 +141,7 @@ def analyze_chart(
             error=last_error,
         )
         raise PipelineError(
-            f"AI pipeline failed after {max_retries + 1} attempts: "
-            f"{last_error}. Dump: {dump_path}"
+            f"AI pipeline failed after {max_retries + 1} attempts: {last_error}. Dump: {dump_path}"
         )
     raw = validated
 

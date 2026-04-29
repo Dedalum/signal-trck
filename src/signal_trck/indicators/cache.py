@@ -6,13 +6,26 @@ LLM, not just a perf optimization. By persisting one set of bytes keyed by
 same numbers regardless of when they ask.
 
 Cache lifecycle:
-- ``compute_or_load`` checks ``INDICATOR_VALUES`` for the requested window.
-- On full hit, returns the persisted values aligned to candle timestamps.
-- On miss (or partial coverage), loads candles from DB, calls
-  ``indicators.engine.compute``, persists the new rows, and returns the
-  full series. We always recompute the full requested window on miss
-  rather than trying to "fill gaps" — gap filling has subtle warmup-bias
-  bugs and the data is small enough that it's cheaper to just recompute.
+- ``compute_or_load`` reads the latest candle ``ts_utc`` (one indexed
+  query) and the cached rows for the requested cache keys.
+- On hit, only the indicator rows are loaded; the candle table is not
+  scanned.
+- On miss, all candles are loaded, the indicator is computed via TA-Lib,
+  and the cache is rewritten atomically via
+  ``Store.replace_indicator_rows`` (delete + insert in one transaction).
+
+"Fully cached" requires every cache key to have at least one row AND its
+latest cached ``ts_utc`` to equal the latest candle ``ts_utc``. We do
+**not** compare row count to candle count: indicators have warmup periods
+(NaN values aren't persisted), so cached row count is typically less than
+candle count. The "latest cached ts" check is what makes the hit safe —
+if a new candle has been fetched, the latest cached ts will lag and we
+recompute.
+
+Caveat: a candle revised in place (same ts, different OHLC — Coinbase
+sometimes does this for the most recent bar) won't invalidate the cache.
+Acceptable for v1; if it causes user-visible drift, switch to invalidating
+the cache row-by-row in ``Store.upsert_candles``.
 """
 
 from __future__ import annotations
@@ -33,7 +46,10 @@ class IndicatorSeries(NamedTuple):
     """Aligned indicator output. ``ts_utc[i]`` corresponds to ``values[i]``.
 
     Multi-output indicators (MACD, BB) return one ``IndicatorSeries`` per
-    output key in a dict. NaNs at the head are normal warmup.
+    output key in a dict. **Only non-NaN values are returned** — TA-Lib's
+    warmup NaNs are filtered out at this boundary on both the miss path
+    (after computation) and the hit path (the cache only persists non-NaN
+    rows). Callers don't need to mask for NaN.
     """
 
     ts_utc: np.ndarray
@@ -71,35 +87,23 @@ async def compute_or_load(
     keys = outputs_for(name)
     cache_keys = [cache_name(name, k) for k in keys]
 
-    candles = await store.get_candles(pair_id, interval)
-    if not candles:
-        empty = np.array([], dtype=np.int64)
+    latest_candle = await store.latest_candle_ts(pair_id, interval)
+    if latest_candle is None:
+        empty_ts = np.array([], dtype=np.int64)
         empty_v = np.array([], dtype=np.float64)
-        return {k: IndicatorSeries(empty, empty_v) for k in keys}
+        return {k: IndicatorSeries(empty_ts, empty_v) for k in keys}
 
-    candle_ts = np.array([c.ts_utc for c in candles], dtype=np.int64)
-
-    # Cache lookup: do we have rows for every (cache_key, ts)? We treat
-    # "fully cached" as the row count for any one cache_key matches the
-    # candle count. Anything less → recompute.
-    cached_rows = await _load_cached_rows(
-        store,
-        pair_id=pair_id,
-        interval=interval,
-        cache_keys=cache_keys,
-        params_hash_=h,
+    cached_rows = await store.get_indicator_rows(
+        pair_id=pair_id, interval=interval, names=cache_keys, params_hash=h
     )
-    fully_cached = cached_rows and all(
-        len(cached_rows.get(k, [])) == len(candle_ts) for k in cache_keys
-    )
-    if fully_cached:
+    if _is_fully_cached(cached_rows, cache_keys, latest_candle):
         log.debug(
             "indicator.cache_hit",
             pair_id=pair_id,
             interval=interval,
             name=name,
             params_hash=h,
-            n=len(candle_ts),
+            n=len(cached_rows[cache_keys[0]]),
         )
         return {
             output_key: IndicatorSeries(
@@ -115,7 +119,9 @@ async def compute_or_load(
             for output_key in keys
         }
 
-    # Cache miss → compute.
+    # Cache miss → load candles, compute, persist.
+    candles = await store.get_candles(pair_id, interval)
+    candle_ts = np.array([c.ts_utc for c in candles], dtype=np.int64)
     closes = np.array([c.close for c in candles], dtype=np.float64)
     raw = compute(name, params, closes)
     log.info(
@@ -127,83 +133,47 @@ async def compute_or_load(
         n=len(candle_ts),
     )
 
-    # Persist non-NaN values for each output key.
-    rows_to_persist: list[tuple[str, str, str, str, str, int, float]] = []
+    # Persist non-NaN values; build the non-NaN-only series we return.
+    rows_to_persist: list[tuple[str, str, str, str, int, float]] = []
     series_out: dict[str, IndicatorSeries] = {}
     for output_key, series in raw.items():
         ck = cache_name(name, output_key)
-        for i, ts in enumerate(candle_ts):
-            val = float(series[i])
-            if np.isnan(val):
-                continue
-            rows_to_persist.append((pair_id, interval, ck, h, "", int(ts), val))
-        series_out[output_key] = IndicatorSeries(ts_utc=candle_ts, values=series)
+        mask = ~np.isnan(series)
+        valid_ts = candle_ts[mask]
+        valid_vals = series[mask]
+        for ts, val in zip(valid_ts.tolist(), valid_vals.tolist(), strict=True):
+            rows_to_persist.append((pair_id, interval, ck, h, int(ts), float(val)))
+        series_out[output_key] = IndicatorSeries(ts_utc=valid_ts, values=valid_vals)
 
-    if rows_to_persist:
-        await _delete_then_insert(
-            store,
-            pair_id=pair_id,
-            interval=interval,
-            cache_keys=cache_keys,
-            params_hash_=h,
-            rows=rows_to_persist,
-        )
+    await store.replace_indicator_rows(
+        pair_id=pair_id,
+        interval=interval,
+        names=cache_keys,
+        params_hash=h,
+        rows=rows_to_persist,
+    )
     return series_out
 
 
-async def _load_cached_rows(
-    store: Store,
-    *,
-    pair_id: str,
-    interval: str,
+def _is_fully_cached(
+    cached_rows: dict[str, list[tuple[int, float]]],
     cache_keys: list[str],
-    params_hash_: str,
-) -> dict[str, list[tuple[int, float]]]:
-    """Fetch existing rows by cache key. Returns ``{}`` on full miss."""
-    placeholders = ",".join("?" for _ in cache_keys)
-    sql = (
-        "SELECT name, ts_utc, value FROM indicator_values "
-        f"WHERE pair_id = ? AND interval = ? AND params_hash = ? "
-        f"AND name IN ({placeholders}) "
-        "ORDER BY name, ts_utc ASC"
-    )
-    args = [pair_id, interval, params_hash_, *cache_keys]
-    cur = await store.conn.execute(sql, args)
-    rows = await cur.fetchall()
-    if not rows:
-        return {}
-    out: dict[str, list[tuple[int, float]]] = {k: [] for k in cache_keys}
-    for name, ts, value in rows:
-        out.setdefault(name, []).append((int(ts), float(value)))
-    return out
+    latest_candle: int,
+) -> bool:
+    """Cache is fresh iff every cache key has at least one row AND the
+    latest cached ``ts_utc`` equals the latest candle ``ts_utc``.
 
-
-async def _delete_then_insert(
-    store: Store,
-    *,
-    pair_id: str,
-    interval: str,
-    cache_keys: list[str],
-    params_hash_: str,
-    rows: list[tuple[str, str, str, str, str, int, float]],
-) -> None:
-    """Replace any existing rows for these cache_keys with the new ones."""
-    placeholders = ",".join("?" for _ in cache_keys)
-    await store.conn.execute(
-        f"""
-        DELETE FROM indicator_values
-        WHERE pair_id = ? AND interval = ? AND params_hash = ?
-          AND name IN ({placeholders})
-        """,
-        [pair_id, interval, params_hash_, *cache_keys],
-    )
-    await store.conn.executemany(
-        """
-        INSERT INTO indicator_values
-            (pair_id, interval, name, params_hash, ts_utc, value)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        # Strip the placeholder column ("" at index 4) from the row tuple.
-        [(r[0], r[1], r[2], r[3], r[5], r[6]) for r in rows],
-    )
-    await store.conn.commit()
+    Row count is not compared to candle count: TA-Lib produces NaN during
+    indicator warmup and we don't persist NaN, so cached row count is
+    typically less than candle count. The "latest cached ts" check is
+    sufficient — if a new candle is fetched, the latest cached ts will
+    lag and we recompute.
+    """
+    for key in cache_keys:
+        rows = cached_rows.get(key, [])
+        if not rows:
+            return False
+        # Rows are ordered ASC by the SQL query; last row's ts is the max.
+        if rows[-1][0] != latest_candle:
+            return False
+    return True

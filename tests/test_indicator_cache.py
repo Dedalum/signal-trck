@@ -41,6 +41,7 @@ async def test_no_candles_returns_empty(store: Store) -> None:
 
 
 async def test_miss_then_hit_returns_same_values(store: Store) -> None:
+    """Both paths return non-NaN-only series; values must match exactly."""
     await _seed_pair(store, n=40)
     out_miss = await compute_or_load(
         store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5}
@@ -49,14 +50,67 @@ async def test_miss_then_hit_returns_same_values(store: Store) -> None:
         store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5}
     )
     np.testing.assert_array_equal(out_miss["value"].ts_utc, out_hit["value"].ts_utc)
-    # NaN positions are not preserved on hit (we only persist non-NaN values),
-    # but the values that ARE present must match exactly.
-    miss_vals = out_miss["value"].values
-    hit_vals = out_hit["value"].values
-    miss_mask = ~np.isnan(miss_vals)
-    hit_mask = ~np.isnan(hit_vals)
-    np.testing.assert_array_equal(miss_mask, hit_mask)
-    np.testing.assert_array_almost_equal(miss_vals[miss_mask], hit_vals[hit_mask])
+    np.testing.assert_array_almost_equal(out_miss["value"].values, out_hit["value"].values)
+    # No NaNs in either result — the cache contract is "non-NaN only".
+    assert not np.isnan(out_miss["value"].values).any()
+    assert not np.isnan(out_hit["value"].values).any()
+
+
+async def test_hit_path_does_not_load_full_candles(store: Store, monkeypatch) -> None:
+    """Cache hits must not call ``Store.get_candles`` — that's the perf gain."""
+    await _seed_pair(store, n=40)
+    # Prime the cache.
+    await compute_or_load(store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5})
+
+    # Sentinel: replace get_candles with a tripwire.
+    original = store.get_candles
+    calls = {"count": 0}
+
+    async def tripwire(*args, **kwargs):
+        calls["count"] += 1
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(store, "get_candles", tripwire)
+
+    # Second call should hit the cache and NOT touch get_candles.
+    await compute_or_load(store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5})
+    assert calls["count"] == 0, (
+        f"cache hit should not load candles, but get_candles called {calls['count']} time(s)"
+    )
+
+
+async def test_stale_cache_invalidated_when_new_candle_added(store: Store) -> None:
+    """If a candle is added after the cache was written, the next compute_or_load
+    must miss (recompute) — not return stale rows whose row count happened to
+    match a partial earlier cache."""
+    await _seed_pair(store, n=40)
+    await compute_or_load(store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5})
+
+    # Add a new candle after the cache was written. The cache's max ts_utc is
+    # now stale (lags the new latest_candle_ts).
+    new_ts = 1_700_000_000 + 40 * 86400
+    await store.upsert_candles(
+        [
+            Candle(
+                pair_id=PAIR,
+                interval="1d",
+                ts_utc=new_ts,
+                open=200,
+                high=201,
+                low=199,
+                close=200,
+                volume=1000,
+                source="coinbase",
+            )
+        ]
+    )
+
+    # Next call must miss — cache should not declare a hit on stale data.
+    out_after = await compute_or_load(
+        store, pair_id=PAIR, interval="1d", name="SMA", params={"period": 5}
+    )
+    # The latest cached value should now correspond to the NEW latest candle.
+    assert out_after["value"].ts_utc[-1] == new_ts
 
 
 async def test_persists_one_row_per_non_nan_value(store: Store) -> None:

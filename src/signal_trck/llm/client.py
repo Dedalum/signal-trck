@@ -69,7 +69,7 @@ class _AnthropicClient:
 
     provider: Provider
     model: str
-    _client: object
+    _client: instructor.Instructor
 
     def analyze(
         self,
@@ -80,7 +80,7 @@ class _AnthropicClient:
         max_tokens: int = 4096,
         temperature: float = 0.2,
     ) -> T:
-        result = self._client.messages.create(  # type: ignore[attr-defined]
+        return self._client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -88,7 +88,6 @@ class _AnthropicClient:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        return result
 
 
 @dataclass
@@ -97,7 +96,7 @@ class _OpenAICompatClient:
 
     provider: Provider
     model: str
-    _client: object
+    _client: instructor.Instructor
 
     def analyze(
         self,
@@ -108,7 +107,7 @@ class _OpenAICompatClient:
         max_tokens: int = 4096,
         temperature: float = 0.2,
     ) -> T:
-        result = self._client.chat.completions.create(  # type: ignore[attr-defined]
+        return self._client.chat.completions.create(
             model=self.model,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -118,7 +117,6 @@ class _OpenAICompatClient:
                 {"role": "user", "content": user},
             ],
         )
-        return result
 
 
 def build_client(provider: Provider, *, api_key: str, model: str | None = None) -> LLMClient:
