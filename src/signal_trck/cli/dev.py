@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 import time
 
 import typer
 from rich.console import Console
 
+from signal_trck.cli._runner import run_async
 from signal_trck.storage import Store
 from signal_trck.storage.models import Candle
 
@@ -62,7 +62,7 @@ def seed(
                 )
             return await store.upsert_candles(candles)
 
-    n = asyncio.run(_run())
+    n = run_async(_run())
     console.print(f"[green]seeded[/green] {n} synthetic 1d candles for {_SEED_PAIR_ID}")
 
 
@@ -81,7 +81,7 @@ def info() -> None:
                         counts[f"{p.pair_id}@{itv}"] = n
             return {"pairs": pairs, "candle_counts": counts}
 
-    out = asyncio.run(_run())
+    out = run_async(_run())
     console.print(f"[bold]pairs[/bold]: {len(out['pairs'])}")
     for p in out["pairs"]:
         console.print(f"  • {p.pair_id}  pinned={p.is_pinned}")

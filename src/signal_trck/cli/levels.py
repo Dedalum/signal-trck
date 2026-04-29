@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 
 import typer
@@ -10,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from signal_trck import pair_id as pair_id_mod
+from signal_trck.cli._runner import run_async
 from signal_trck.levels import detect_candidates
 from signal_trck.storage import Store
 
@@ -46,7 +46,7 @@ def levels(
             top_n=top_n,
         )
 
-    candidates = asyncio.run(_go())
+    candidates = run_async(_go())
 
     if not candidates:
         console.print(

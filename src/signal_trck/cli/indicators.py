@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from signal_trck import pair_id as pair_id_mod
+from signal_trck.cli._runner import run_async
 from signal_trck.indicators import IndicatorParams
 from signal_trck.indicators.cache import compute_or_load
 from signal_trck.storage import Store
@@ -48,7 +47,7 @@ def _run(name: str, params: IndicatorParams, pair: str, interval: str) -> None:
                 params=params,
             )
 
-    series = asyncio.run(_go())
+    series = run_async(_go())
     for output_key, s in series.items():
         _print_series(name, output_key, s.ts_utc, s.values)
 

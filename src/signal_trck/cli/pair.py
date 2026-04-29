@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from signal_trck import pair_id as pair_id_mod
+from signal_trck.cli._runner import run_async
 from signal_trck.storage import Store
 
 app = typer.Typer(no_args_is_help=True)
@@ -37,7 +36,7 @@ def add(
                 await store.pin_pair(pid.value, True)
             return existed
 
-    existed = asyncio.run(_run())
+    existed = run_async(_run())
     action = "already tracked" if existed else "added"
     console.print(f"[green]{action}[/green] {pid.display}  [dim]({pid.value})[/dim]")
 
@@ -50,7 +49,7 @@ def list_pairs() -> None:
         async with Store.open() as store:
             return await store.list_pairs()
 
-    pairs = asyncio.run(_run())
+    pairs = run_async(_run())
 
     if not pairs:
         console.print("[dim]No pairs tracked. Add one: signal-trck pair add coinbase:BTC-USD[/dim]")

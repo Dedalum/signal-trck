@@ -11,7 +11,6 @@ list, and the server resolves the ID to a real price at insert time.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from pathlib import Path
@@ -23,6 +22,7 @@ from rich.console import Console
 from signal_trck import pair_id as pair_id_mod
 from signal_trck.chart_io import read_chart, write_chart
 from signal_trck.chart_schema import Chart
+from signal_trck.cli._runner import run_async
 from signal_trck.config import AppConfig
 from signal_trck.indicators.cache import compute_or_load
 from signal_trck.levels import detect_candidates
@@ -88,7 +88,7 @@ def analyze(
             raise typer.BadParameter(f"context file not found: {context}")
         context_md = context.read_text(encoding="utf-8")
 
-    asyncio.run(
+    run_async(
         _run(
             chart_in=chart_in,
             pair_id=pid.value,

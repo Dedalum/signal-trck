@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 
 import structlog
@@ -11,6 +10,7 @@ from rich.console import Console
 
 from signal_trck import pair_id as pair_id_mod
 from signal_trck.adapters import build_adapter
+from signal_trck.cli._runner import run_async
 from signal_trck.storage import Store
 
 console = Console()
@@ -62,7 +62,7 @@ def fetch(
                 log.info("fetch.pair_auto_added", pair=pid.value)
             return await store.upsert_candles(candles)
 
-    n = asyncio.run(_run())
+    n = run_async(_run())
     console.print(
         f"[green]ok[/green] fetched {n} candles for {pid.display} "
         f"interval={interval} window={window_days}d"
