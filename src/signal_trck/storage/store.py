@@ -250,3 +250,82 @@ class Store:
         )
         r = await cur.fetchone()
         return r[0] if r and r[0] is not None else None
+
+    # ---- ai_runs ----
+
+    async def write_ai_run(
+        self,
+        *,
+        pair_id: str,
+        chart_slug: str,
+        provider: str,
+        model: str,
+        prompt_template_version: str,
+        system_prompt_hash: str,
+        context_file_sha256: str | None,
+        context_preview: str | None,
+        sr_candidates_presented_json: str,
+        sr_candidates_selected_json: str,
+        ran_at: int,
+    ) -> int:
+        """Persist a single ``ai_runs`` row. Returns the new ``run_id``."""
+        cur = await self.conn.execute(
+            """
+            INSERT INTO ai_runs (
+                pair_id, chart_slug, model, provider,
+                prompt_template_version, system_prompt_hash,
+                context_file_sha256, context_preview,
+                sr_candidates_presented, sr_candidates_selected, ran_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pair_id,
+                chart_slug,
+                model,
+                provider,
+                prompt_template_version,
+                system_prompt_hash,
+                context_file_sha256,
+                context_preview,
+                sr_candidates_presented_json,
+                sr_candidates_selected_json,
+                ran_at,
+            ),
+        )
+        await self.conn.commit()
+        return int(cur.lastrowid or 0)
+
+    async def list_ai_runs(self, pair_id: str, *, limit: int | None = None) -> list[dict]:
+        """Return AI run audit rows for a pair, newest first.
+
+        Returned dicts contain all columns; JSON columns are returned as raw
+        strings so callers can decide whether to parse.
+        """
+        sql = (
+            "SELECT run_id, pair_id, chart_slug, model, provider, "
+            "prompt_template_version, system_prompt_hash, "
+            "context_file_sha256, context_preview, "
+            "sr_candidates_presented, sr_candidates_selected, ran_at "
+            "FROM ai_runs WHERE pair_id = ? ORDER BY ran_at DESC"
+        )
+        params: list = [pair_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cur = await self.conn.execute(sql, params)
+        rows = await cur.fetchall()
+        cols = [
+            "run_id",
+            "pair_id",
+            "chart_slug",
+            "model",
+            "provider",
+            "prompt_template_version",
+            "system_prompt_hash",
+            "context_file_sha256",
+            "context_preview",
+            "sr_candidates_presented",
+            "sr_candidates_selected",
+            "ran_at",
+        ]
+        return [dict(zip(cols, r, strict=True)) for r in rows]

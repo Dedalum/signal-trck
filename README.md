@@ -16,13 +16,22 @@ for the full design.
 
 ## Status
 
-**Phase A.1 — Foundation + data layer.** Web UI and AI CLI come in later
-phases. Currently shipped:
+**Phase A complete.** Web UI follows in Phase B. Currently shipped:
 
 - Coinbase Advanced Trade public-market adapter (no auth required)
 - SQLite storage with WAL, source-namespaced canonical pair IDs
 - Token-bucket rate limiting per adapter
-- `pair add`, `pair list`, `fetch`, `dev seed`, `dev info`
+- TA-Lib indicator engine (SMA / EMA / RSI / MACD / BB) with row-cache for
+  byte-identical UI ↔ LLM numeric parity
+- Swing-cluster S/R candidate engine with stable IDs and strength ranking
+- Full Pydantic chart.json schema (v1) with round-trip JSON
+- Provider-agnostic LLM wrapper via `instructor` — Anthropic, OpenAI,
+  Moonshot/Kimi, DeepSeek
+- `signal-trck ai analyze` — grounded LLM analysis of a user-authored chart;
+  the LLM picks `candidate_id`s from a typed list, server resolves to price
+- AI run audit table for replay/diagnosis
+- CLI: `pair add|list`, `fetch`, `indicators sma|ema|rsi|macd|bb`, `levels`,
+  `ai analyze`, `dev seed|info`
 - structlog with `--log-format json` mode
 
 ## Quick start
@@ -81,11 +90,31 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 See [`.env.example`](.env.example).
 
+## Running an AI analysis
+
+Hand-write a chart-1.json (or use a future Phase B export) describing your
+view of a tracked pair, then:
+
+```bash
+export LLM_PROVIDER=moonshot          # or anthropic | openai | deepseek
+export MOONSHOT_API_KEY=sk-...
+
+signal-trck ai analyze \
+  --input chart-1.json \
+  --output chart-2.json \
+  --context thesis.md      # optional markdown of qualitative context
+```
+
+The CLI prints an approximate-token + cost disclosure and asks for
+confirmation before the LLM call. `--dry-run` prints what would be sent
+without calling the LLM or writing files. `--provider` and `--model`
+override the env defaults per run.
+
 ## Roadmap
 
-- **Phase A.1** ← we are here. Data layer + adapters + CLI scaffolding.
-- **Phase A.2** — Indicators (TA-Lib) + S/R candidate engine + chart_schema.
-- **Phase A.3** — `signal-trck ai analyze` with `instructor` (provider-agnostic).
+- **Phase A.1** — Data layer + adapters + CLI scaffolding. ✅
+- **Phase A.2** — Indicators (TA-Lib) + S/R candidate engine + chart_schema. ✅
+- **Phase A.3** — `signal-trck ai analyze` with `instructor` (provider-agnostic). ✅
 - **Phase B** — Web UI: Vite + TS + Lightweight Charts v5 + drawing tools.
 - **Phase C** — AI artifacts in the UI.
 - **Phase D** — Markdown context + Obsidian sink + polish.

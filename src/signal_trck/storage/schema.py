@@ -66,6 +66,30 @@ MIGRATIONS: list[list[str]] = [
         ON indicator_values(pair_id, interval, name, params_hash, ts_utc DESC)
         """,
     ],
+    # v3 — ai_runs audit (one row per `signal-trck ai analyze` invocation)
+    [
+        """
+        CREATE TABLE IF NOT EXISTS ai_runs (
+            run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pair_id TEXT NOT NULL,
+            chart_slug TEXT NOT NULL,
+            model TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            prompt_template_version TEXT NOT NULL,
+            system_prompt_hash TEXT NOT NULL,
+            context_file_sha256 TEXT,
+            context_preview TEXT,
+            sr_candidates_presented TEXT NOT NULL,
+            sr_candidates_selected TEXT NOT NULL,
+            ran_at INTEGER NOT NULL,
+            FOREIGN KEY (pair_id) REFERENCES pairs(pair_id) ON DELETE CASCADE
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_ai_runs_pair_chart_ran
+        ON ai_runs(pair_id, chart_slug, ran_at DESC)
+        """,
+    ],
 ]
 
 
