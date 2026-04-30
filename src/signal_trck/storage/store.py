@@ -11,16 +11,58 @@ import json
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 import aiosqlite
 import structlog
 
 from signal_trck import paths
-from signal_trck.storage.models import AIRunRow, Candle, Pair
+from signal_trck.chart_schema import (
+    AIRun,
+    Anchor,
+    Chart,
+    Drawing,
+    Indicator,
+    Provenance,
+    SRCandidate,
+    Style,
+)
+from signal_trck.storage.models import AIRunRow, Candle, ChartListItem, Pair
 from signal_trck.storage.schema import MIGRATIONS, SCHEMA_VERSION_DDL
 
 log = structlog.get_logger(__name__)
+
+
+# --- Exceptions ---
+
+
+class StoreError(Exception):
+    """Base for storage-layer errors that map to specific HTTP statuses."""
+
+
+class PairNotFound(StoreError):  # noqa: N818 — REST-style name; "Error" suffix would read awkward at call sites
+    """A pair_id was referenced that doesn't exist."""
+
+    def __init__(self, pair_id: str) -> None:
+        self.pair_id = pair_id
+        super().__init__(f"pair {pair_id!r} not found")
+
+
+class ChartNotFound(StoreError):  # noqa: N818 — see PairNotFound
+    """A chart slug was referenced that doesn't exist."""
+
+    def __init__(self, slug: str) -> None:
+        self.slug = slug
+        super().__init__(f"chart {slug!r} not found")
+
+
+class ChartSlugConflict(StoreError):  # noqa: N818 — see PairNotFound
+    """Attempted to create a chart whose slug is already in use."""
+
+    def __init__(self, slug: str) -> None:
+        self.slug = slug
+        super().__init__(f"chart slug {slug!r} already exists")
 
 
 class Store:
@@ -401,3 +443,345 @@ class Store:
             )
             for r in rows
         ]
+
+    async def remove_pair(self, pair_id: str) -> None:
+        """Delete a pair. Cascades via FK to candles, indicator_values,
+        ai_runs, charts (and through them, drawings + indicator_refs).
+        Idempotent: deleting a missing pair is a no-op (no exception)."""
+        await self.conn.execute("DELETE FROM pairs WHERE pair_id = ?", (pair_id,))
+        await self.conn.commit()
+
+    # ---- chart slug allocator ----
+
+    async def next_slug(self, pair_id: str) -> str:
+        """Allocate the next available slug for ``pair_id``.
+
+        Uses a per-pair counter row (``chart_slug_seq``) updated atomically
+        in a single SQL roundtrip. Slugs are monotonic; gaps are OK (a slug
+        allocated then unused is fine — git is the version history).
+
+        Returns ``"chart-{n}"`` where n is 1-based.
+        """
+        if await self.get_pair(pair_id) is None:
+            raise PairNotFound(pair_id)
+        # Insert-or-bump in one transaction. RETURNING gets us the value
+        # of next_n *after* the increment, so the slug we hand out is the
+        # value before the bump.
+        await self.conn.execute(
+            """
+            INSERT INTO chart_slug_seq (pair_id, next_n) VALUES (?, 2)
+            ON CONFLICT(pair_id) DO UPDATE SET next_n = next_n + 1
+            """,
+            (pair_id,),
+        )
+        cur = await self.conn.execute(
+            "SELECT next_n FROM chart_slug_seq WHERE pair_id = ?", (pair_id,)
+        )
+        row = await cur.fetchone()
+        await self.conn.commit()
+        if row is None:
+            raise RuntimeError("chart_slug_seq row missing after upsert")
+        # next_n is the *next* counter — the value we just allocated is one less.
+        n = int(row[0]) - 1
+        return f"chart-{n}"
+
+    # ---- charts / drawings / indicator_refs ----
+
+    async def create_chart(self, chart: Chart) -> None:
+        """Persist a new chart with its drawings + indicator refs.
+
+        Raises ``ChartSlugConflict`` if the slug is already in use.
+        Raises ``PairNotFound`` if ``chart.pair`` doesn't exist.
+        """
+        if await self.get_pair(chart.pair) is None:
+            raise PairNotFound(chart.pair)
+        existing = await self.conn.execute(
+            "SELECT 1 FROM charts WHERE slug = ?", (chart.slug,)
+        )
+        if await existing.fetchone() is not None:
+            raise ChartSlugConflict(chart.slug)
+        await self._insert_chart_rows(chart)
+
+    async def update_chart(self, chart: Chart) -> None:
+        """Replace an existing chart's row + drawings + indicator refs.
+
+        Raises ``ChartNotFound`` if the slug doesn't exist.
+        """
+        existing = await self.conn.execute(
+            "SELECT 1 FROM charts WHERE slug = ?", (chart.slug,)
+        )
+        if await existing.fetchone() is None:
+            raise ChartNotFound(chart.slug)
+        # Delete + re-insert is simpler than per-row diff for v1; the
+        # drawings/indicator_refs sets are small (< 50 typical).
+        await self.conn.execute("DELETE FROM drawings WHERE chart_slug = ?", (chart.slug,))
+        await self.conn.execute(
+            "DELETE FROM indicator_refs WHERE chart_slug = ?", (chart.slug,)
+        )
+        await self.conn.execute("DELETE FROM charts WHERE slug = ?", (chart.slug,))
+        await self._insert_chart_rows(chart)
+
+    async def _insert_chart_rows(self, chart: Chart) -> None:
+        """Insert charts + drawings + indicator_refs for ``chart``.
+
+        Caller is responsible for prior cleanup (or for asserting absence).
+        Commit happens once at the end so the three inserts share a
+        transaction.
+        """
+        now = int(time.time())
+        ai_run = chart.ai_run
+        # Persist a placeholder ai_run_id only if the chart already has one
+        # via prior mechanism; for now charts created from CLI/UI don't
+        # carry an ai_run_id reference (they're either fresh user charts or
+        # imported AI charts where the AI run was on a different machine).
+        # This stays NULL until Phase C wires through.
+        ai_run_id: int | None = None
+        prov = chart.provenance
+        await self.conn.execute(
+            """
+            INSERT INTO charts (
+                slug, pair_id, title,
+                schema_version, default_window_days, default_interval,
+                parent_chart_slug, analysis_text, ai_run_id,
+                prov_kind, prov_model, prov_prompt_template_version, prov_created_at,
+                created_at_unix, updated_at_unix
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                chart.slug,
+                chart.pair,
+                chart.title,
+                chart.schema_version,
+                chart.data.default_window_days,
+                chart.data.default_interval,
+                chart.parent_chart_id,
+                chart.view.analysis_text,
+                ai_run_id,
+                prov.kind,
+                prov.model,
+                prov.prompt_template_version,
+                prov.created_at.isoformat(),
+                now,
+                now,
+            ),
+        )
+        if chart.view.indicators:
+            await self.conn.executemany(
+                """
+                INSERT INTO indicator_refs
+                    (chart_slug, indicator_id, name, params_json, pane)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (chart.slug, ind.id, ind.name, json.dumps(ind.params, sort_keys=True), ind.pane)
+                    for ind in chart.view.indicators
+                ],
+            )
+        if chart.view.drawings:
+            await self.conn.executemany(
+                """
+                INSERT INTO drawings (
+                    drawing_id, chart_slug, kind,
+                    anchors_json, style_json, order_index,
+                    prov_kind, prov_model, prov_created_at,
+                    prov_confidence, prov_rationale
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        d.id,
+                        chart.slug,
+                        d.kind,
+                        json.dumps(
+                            [a.model_dump(mode="json") for a in d.anchors],
+                            sort_keys=False,
+                        ),
+                        json.dumps(d.style.model_dump(mode="json"), sort_keys=False),
+                        idx,
+                        d.provenance.kind if d.provenance else None,
+                        d.provenance.model if d.provenance else None,
+                        d.provenance.created_at.isoformat() if d.provenance else None,
+                        d.provenance.confidence if d.provenance else None,
+                        d.provenance.rationale if d.provenance else None,
+                    )
+                    for idx, d in enumerate(chart.view.drawings)
+                ],
+            )
+        # ai_run_data: if the chart carries an embedded AIRun payload, we
+        # could persist it to the ai_runs table here. Current decision: AI
+        # runs come from the `signal-trck ai analyze` CLI which writes to
+        # ai_runs directly; importing an AI chart from disk does NOT
+        # re-create an ai_runs row (the data already lives on the
+        # originating machine). The chart's `ai_run` field stays in the
+        # exported JSON for portability but isn't shadow-persisted.
+        _ = ai_run  # explicit no-op — see comment above
+        await self.conn.commit()
+
+    async def get_chart(self, slug: str) -> Chart:
+        """Load a complete ``Chart`` (with drawings + indicator refs).
+
+        Raises ``ChartNotFound`` if the slug doesn't exist.
+        """
+        cur = await self.conn.execute(
+            """
+            SELECT slug, pair_id, title, schema_version,
+                   default_window_days, default_interval,
+                   parent_chart_slug, analysis_text, ai_run_id,
+                   prov_kind, prov_model, prov_prompt_template_version, prov_created_at
+            FROM charts WHERE slug = ?
+            """,
+            (slug,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            raise ChartNotFound(slug)
+        # Indicators
+        ind_cur = await self.conn.execute(
+            "SELECT indicator_id, name, params_json, pane "
+            "FROM indicator_refs WHERE chart_slug = ? ORDER BY pane ASC, indicator_id ASC",
+            (slug,),
+        )
+        indicators = [
+            Indicator(
+                id=r[0],
+                name=r[1],
+                params=json.loads(r[2]),
+                pane=int(r[3]),
+            )
+            for r in await ind_cur.fetchall()
+        ]
+        # Drawings
+        dr_cur = await self.conn.execute(
+            """
+            SELECT drawing_id, kind, anchors_json, style_json, order_index,
+                   prov_kind, prov_model, prov_created_at,
+                   prov_confidence, prov_rationale
+            FROM drawings WHERE chart_slug = ? ORDER BY order_index ASC
+            """,
+            (slug,),
+        )
+        drawings: list[Drawing] = []
+        for d in await dr_cur.fetchall():
+            anchors = [Anchor.model_validate(a) for a in json.loads(d[2])]
+            style = Style.model_validate(json.loads(d[3]))
+            prov: Provenance | None = None
+            if d[5] is not None:  # prov_kind
+                prov = Provenance(
+                    kind=d[5],
+                    model=d[6],
+                    created_at=datetime.fromisoformat(d[7]),
+                    confidence=d[8],
+                    rationale=d[9],
+                )
+            drawings.append(
+                Drawing(
+                    id=d[0],
+                    kind=d[1],
+                    anchors=anchors,
+                    style=style,
+                    provenance=prov,
+                )
+            )
+        # AI run (if linked)
+        ai_run: AIRun | None = None
+        if row[8] is not None:
+            ai_run = await self._load_ai_run_for_chart(int(row[8]))
+        # Reassemble Chart. Use model_validate so all sub-validators run.
+        return Chart.model_validate(
+            {
+                "schemaVersion": int(row[3]),
+                "slug": row[0],
+                "title": row[2],
+                "pair": row[1],
+                "provenance": {
+                    "kind": row[9],
+                    "model": row[10],
+                    "prompt_template_version": row[11],
+                    "created_at": row[12],
+                },
+                "parent_chart_id": row[6],
+                "data": {
+                    "default_window_days": int(row[4]),
+                    "default_interval": row[5],
+                },
+                "view": {
+                    "indicators": [i.model_dump(mode="json") for i in indicators],
+                    "drawings": [d.model_dump(mode="json") for d in drawings],
+                    "analysis_text": row[7],
+                },
+                "ai_run": ai_run.model_dump(mode="json") if ai_run else None,
+            }
+        )
+
+    async def _load_ai_run_for_chart(self, ai_run_id: int) -> AIRun | None:
+        """Reconstruct the embedded ``AIRun`` model from ``ai_runs`` row."""
+        cur = await self.conn.execute(
+            """
+            SELECT model, prompt_template_version, context_file_sha256,
+                   context_preview, sr_candidates_presented, sr_candidates_selected
+            FROM ai_runs WHERE run_id = ?
+            """,
+            (ai_run_id,),
+        )
+        r = await cur.fetchone()
+        if r is None:
+            return None
+        presented = [SRCandidate.model_validate(c) for c in json.loads(r[4])]
+        selected = json.loads(r[5])
+        return AIRun(
+            model=r[0],
+            prompt_template_version=r[1],
+            context_file_sha256=r[2],
+            context_preview=r[3],
+            sr_candidates_presented=presented,
+            sr_candidates_selected=selected,
+        )
+
+    async def list_charts(
+        self, *, pair_id: str | None = None, limit: int | None = None
+    ) -> list[ChartListItem]:
+        """Return chart summaries for sidebar listings.
+
+        Newest first by ``updated_at_unix``. Filters by ``pair_id`` when
+        supplied (this is the typical UI flow — "show charts for this pair").
+        """
+        sql = (
+            "SELECT slug, pair_id, title, prov_kind, prov_model, "
+            "parent_chart_slug, ai_run_id, updated_at_unix FROM charts"
+        )
+        params: list = []
+        if pair_id is not None:
+            sql += " WHERE pair_id = ?"
+            params.append(pair_id)
+        sql += " ORDER BY updated_at_unix DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cur = await self.conn.execute(sql, params)
+        rows = await cur.fetchall()
+        return [
+            ChartListItem(
+                slug=r[0],
+                pair_id=r[1],
+                title=r[2],
+                prov_kind=r[3],
+                prov_model=r[4],
+                parent_chart_slug=r[5],
+                ai_run_id=int(r[6]) if r[6] is not None else None,
+                updated_at_unix=int(r[7]),
+            )
+            for r in rows
+        ]
+
+    async def delete_chart(self, slug: str) -> None:
+        """Delete a chart. Cascades via FK to drawings + indicator_refs.
+
+        Idempotent — raises ``ChartNotFound`` if the slug doesn't exist so
+        callers can report a 404, but the underlying DELETE itself is safe
+        on missing rows.
+        """
+        existing = await self.conn.execute("SELECT 1 FROM charts WHERE slug = ?", (slug,))
+        if await existing.fetchone() is None:
+            raise ChartNotFound(slug)
+        await self.conn.execute("DELETE FROM charts WHERE slug = ?", (slug,))
+        await self.conn.commit()

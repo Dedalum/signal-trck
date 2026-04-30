@@ -1,10 +1,11 @@
 ---
-title: signal-trck architecture & Phase A retrospective
+title: signal-trck architecture & retrospective
 status: current
-phase: A (complete)
-last_updated: 2026-04-29
+phase: B (complete)
+last_updated: 2026-04-30
 related:
   - plans/feat-crypto-charting-ai-analysis.md
+  - plans/feat-phase-b-web-ui-fastapi.md
   - README.md
 ---
 
@@ -321,27 +322,172 @@ Phase B / web-UI concern.
 | Find what the LLM was sent                       | `~/.signal-trck/failed/<ts>.json` on failure; `ai_runs.context_preview` on success |
 | Inspect the cache for a pair                     | `sqlite3 ~/.signal-trck/db.sqlite "SELECT * FROM indicator_values"` |
 
-## Phase B integration points
+## Phase B retrospective
 
-When the web UI lands, these are the seams it will plug into. The Phase A
-code was structured with these integration points in mind — they're
-already accessible Python functions, just not yet exposed over HTTP.
+**Phase B is complete** as of `feat/phase-b-web-ui` branch. Two-process
+dev (Vite :5173 + FastAPI :8000) collapses to one in prod (FastAPI
+serves the SPA assets). 185 Python tests passing; mypy `--strict`
+clean on `api/`; tsc strict + extras clean on `web/`; vitest 3/3 on
+the drawing-adapter tests. Frontend bundle 107 KB gzipped.
 
-| Phase B need                                  | Phase A function to wrap                                                  |
-|-----------------------------------------------|---------------------------------------------------------------------------|
-| `GET /pairs`                                  | `Store.list_pairs`                                                         |
-| `POST /pairs`                                 | `Store.add_pair` + `pair_id.parse`                                         |
-| `GET /pairs/{id}/candles`                     | `Store.get_candles`                                                        |
-| `GET /pairs/{id}/indicators/{name}`           | `indicators.cache.compute_or_load`                                         |
-| `GET /pairs/{id}/sr-candidates`               | `levels.detect_candidates` (stateless, takes `list[Candle]`)               |
-| `POST /charts` (save user chart from UI)      | `chart_io.write_chart` (file-based v1) — DB-backed in v2 (new `charts` table) |
-| `GET /charts/{slug}`                          | `chart_io.read_chart` — DB-backed in v2                                    |
-| `GET /pairs/{id}/ai_runs`                     | `Store.list_ai_runs` (already exists — used by the rationale/trace panel)  |
+### What Phase B delivered
 
-The `charts` and `drawings` tables are deferred to Phase B — Phase A only
-needs `ai_runs` for audit. When Phase B persists charts in DB, the
-existing `chart_io` file functions become export/import helpers rather
-than the storage layer.
+**Backend (`src/signal_trck/api/`):**
+- 3 files, not 11 (Decision 13). `app.py` (module-level FastAPI +
+  inline access-log middleware + lifespan), `routes.py` (all 14
+  handlers + per-indicator-name params + `get_store` dep),
+  `errors.py` (exception handler table).
+- 14 routes: `/healthz`, `/pairs` GET/POST, `/pairs/{id}` DELETE,
+  `/pairs/{id}/candles`, `/pairs/{id}/indicators/{name}`,
+  `/pairs/{id}/sr-candidates`, `/pairs/{id}/refresh`,
+  `/pairs/{id}/ai_runs`, `/charts` GET/POST, `/charts/{slug}` GET/PUT/DELETE,
+  `/charts/import`, `/charts/{slug}/export`.
+- `signal-trck serve` CLI command — uvicorn boot, hardcoded
+  `127.0.0.1` bind (no `--allow-non-loopback` escape hatch), CORS
+  allow-list `localhost:5173` only when `SIGNAL_TRCK_DEV=1`.
+- API-key redaction processor on structlog (`*_API_KEY` field
+  patterns + `sk-` value patterns redacted to `***`).
+
+**Storage extensions:**
+- Migration v4 — `charts` + `drawings` + `indicator_refs` tables +
+  `chart_slug_seq` allocator + `indicator_values` index reorder
+  (per Decision 12, bundled).
+- `Store.create_chart` / `update_chart` / `get_chart` / `list_charts`
+  / `delete_chart` / `next_slug` / `remove_pair`.
+- Three new exceptions: `PairNotFound`, `ChartNotFound`,
+  `ChartSlugConflict` — mapped to 404/409 in the API layer.
+
+**Frontend (`web/`):**
+- Vite + React 18 + zustand + TypeScript (strict +
+  `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`).
+- Single `api.ts` (Decision 14) using types generated from FastAPI's
+  `/openapi.json` via `openapi-typescript`. No hand-mirrored Pydantic
+  shapes.
+- Single `store.ts` zustand store (Decision 8 amended) — chart state
+  + ephemeral UI in one store; selectors give per-component
+  granularity.
+- `ChartView` — Lightweight Charts v5 with candle pane + volume
+  sub-pane + indicator overlays + sub-panes for RSI/MACD.
+- `DrawingLayer` — custom on `ISeriesPrimitive` (Decision 9 fallback
+  activated; difurious plugin not on npm). Three shapes: trend,
+  horizontal, rectangle. Click-to-create state machine.
+- Phase C scaffolding (Decision 10): dashed stroke for AI provenance
+  in `drawings/styles.ts`; `onDrawingClick(drawing)` event surface
+  with `console.debug` no-op for AI in B; Phase C swaps the body.
+- `ErrorModal` (Decision 24) for schema-version mismatches and
+  generic API errors, with copy-message affordance.
+
+**Tests:**
+- `tests/api/test_routes.py` — 24 contract tests for all 14 routes.
+- `tests/api/test_api_key_redaction.py` — sentinel test pinning the
+  no-key-on-the-wire invariant across every response.
+- `tests/api/test_drawings_round_trip.py` — chart + drawings round-trip
+  via PUT /charts → GET /charts.
+- `tests/test_chart_storage.py` — 14 Store CRUD tests.
+- `web/src/drawings/serialize.test.ts` — vitest 3-test adapter
+  identity + UUID uniqueness + AI-provenance preservation.
+
+### Decisions made during implementation
+
+These deviated from the plan as written, with reasoning. All flagged
+in the plan file post-amend.
+
+1. **Drawing plugin: custom on `ISeriesPrimitive`** (Decision 9
+   fallback). The difurious plugin is GitHub-only. Custom on
+   primitives is ~250 LOC for the three shapes; bounded; no
+   third-party risk. Adapter pattern preserved so a future plugin
+   swap stays contained to `web/src/drawings/`.
+2. **Drawing-id PK**: composite `(chart_slug, drawing_id)` instead of
+   global `drawing_id` PK. A user importing the same chart twice
+   under different slugs shouldn't hit a UNIQUE collision. Drawings
+   are scoped to their chart.
+3. **`SchemaVersionError` raised pre-Pydantic**: pydantic's
+   `model_validator` would wrap our `ValueError` in a
+   `ValidationError`. We added `chart_io.parse_chart_json` that
+   peeks at `schemaVersion` before model-construction and raises
+   `SchemaVersionError` directly so the API layer can map it to 422
+   `SCHEMA_MISMATCH`.
+4. **Single zustand store** (Decision 8 amended): the plan started
+   with two stores split, the reviewers said split-when-measured.
+   Implementation went with single store; selectors keep
+   re-render granularity.
+
+### Module map (Phase B additions)
+
+```
+src/signal_trck/
+├── api/                   — NEW: FastAPI surface
+│   ├── __init__.py
+│   ├── app.py             — module-level FastAPI(lifespan=...)
+│   ├── routes.py          — all 14 handlers + get_store dep
+│   └── errors.py          — exception → HTTP handler table
+├── cli/
+│   └── serve.py           — NEW: `signal-trck serve` command
+├── chart_io.py            — added `parse_chart_json` (pre-Pydantic schemaVersion check)
+├── chart_schema/
+│   └── models.py          — added `SchemaVersionError`
+├── pair_id.py             — added `PairIdError`
+├── log.py                 — added `_redact_api_keys` processor
+└── storage/
+    ├── models.py          — added `ChartListItem` dataclass
+    ├── schema.py          — migration v4
+    └── store.py           — added 7 chart-related methods + 3 exceptions
+
+web/                       — NEW: Vite + React frontend
+├── package.json
+├── vite.config.ts         — proxy /api → :8000 in dev
+├── tsconfig.json          — strict + extras
+├── openapi.json           — regenerate via FastAPI's /openapi.json
+└── src/
+    ├── main.tsx
+    ├── App.tsx            — two-column layout (third column = Phase C)
+    ├── api.ts             — typed fetch wrapper, all 14 routes
+    ├── api-types.ts       — generated by openapi-typescript
+    ├── store.ts           — single zustand store
+    ├── styles.css         — minimal CSS
+    ├── chart/
+    │   ├── ChartView.tsx  — Lightweight Charts v5 wiring
+    │   └── format.ts
+    ├── drawings/
+    │   ├── DrawingLayer.tsx       — mouse handlers + lifecycle
+    │   ├── primitives.ts          — custom on ISeriesPrimitive
+    │   ├── styles.ts              — dashed stroke for AI provenance
+    │   ├── serialize.ts           — adapter (identity for v1)
+    │   └── serialize.test.ts      — vitest
+    └── views/
+        ├── PairList.tsx
+        ├── PairView.tsx           — toolbar + chart + drawings
+        └── SchemaMismatchModal.tsx
+```
+
+### Key invariants now enforced by the API surface
+
+- **`127.0.0.1` only** — uvicorn bind hardcoded.
+- **No API keys on the wire** — `tests/api/test_api_key_redaction.py`
+  greps every response for a sentinel; structlog redactor catches
+  field-name + value-pattern leaks.
+- **Schema-version error UX is a modal** — `ErrorModal` shows the
+  server message verbatim with copy affordance.
+- **Charts round-trip byte-for-byte** —
+  `tests/test_chart_storage.py:test_round_trip_user_chart` deep-
+  equality on the Pydantic model.
+- **Drawings preserve order** — `order_index` in the table; render
+  stack is predictable across reloads.
+- **Provider keys live in env, never in HTTP** — frontend reads only
+  `/api/*`; LLM calls are CLI-only in Phases B+C.
+
+## Phase C integration points
+
+Phase C will populate the layout/event surfaces Phase B reserved.
+
+| Phase C need                                  | Phase B surface to extend                                          |
+|-----------------------------------------------|--------------------------------------------------------------------|
+| Right sidebar `RationalePanel`                | New file; one CSS-grid edit in `App.tsx` (`280px 1fr` → `280px 1fr 320px`) |
+| AI badge on chart cards in `PairList`         | One-line ternary on `prov_kind === "ai"`                           |
+| Click an AI drawing → open rationale panel    | `web/src/drawings/DrawingLayer.tsx:onDrawingClick` — swap the `console.debug` body |
+| "Run AI analysis" copy-CLI modal              | New modal component, opened from `PairView` toolbar                |
+| Per-drawing rationale + confidence display    | New `RationaleCard.tsx`; reads `chart.view.drawings[i].provenance` |
+| `GET /pairs/{id}/ai_runs/{run_id}` UI         | Route already exists in `routes.py:list_ai_runs`; just wire up     |
 
 ## Out of v1 scope (parking lot)
 

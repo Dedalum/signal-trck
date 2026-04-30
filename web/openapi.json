@@ -1,0 +1,1849 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "signal-trck",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Healthz",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs": {
+      "get": {
+        "summary": "List Pairs",
+        "operationId": "list_pairs_pairs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PairResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Pairs Pairs Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Pair",
+        "operationId": "create_pair_pairs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}": {
+      "delete": {
+        "summary": "Remove Pair",
+        "operationId": "remove_pair_pairs__pair_id__delete",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}/candles": {
+      "get": {
+        "summary": "Get Candles",
+        "operationId": "get_candles_pairs__pair_id__candles_get",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1h",
+                "1d",
+                "1w"
+              ],
+              "type": "string",
+              "default": "1d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 3650,
+              "minimum": 1,
+              "default": 90,
+              "title": "Window Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CandleResponse"
+                  },
+                  "title": "Response Get Candles Pairs  Pair Id  Candles Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}/indicators/{name}": {
+      "get": {
+        "summary": "Get Indicator",
+        "description": "Return a (potentially multi-output) indicator series.\n\nPer Decision 20: the ``name`` path param dispatches to a per-indicator\nparams shape. SMA/EMA/RSI take ``period``; MACD takes ``fast``/``slow``/\n``signal``; BB takes ``period``/``stddev``. Unknown ``name`` \u2192 422.",
+        "operationId": "get_indicator_pairs__pair_id__indicators__name__get",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1h",
+                "1d",
+                "1w"
+              ],
+              "type": "string",
+              "default": "1d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period"
+            }
+          },
+          {
+            "name": "fast",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fast"
+            }
+          },
+          {
+            "name": "slow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 500,
+                  "minimum": 3
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Slow"
+            }
+          },
+          {
+            "name": "signal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 200,
+                  "minimum": 2
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Signal"
+            }
+          },
+          {
+            "name": "stddev",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 10,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stddev"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndicatorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}/sr-candidates": {
+      "get": {
+        "summary": "Get Sr Candidates",
+        "operationId": "get_sr_candidates_pairs__pair_id__sr_candidates_get",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1h",
+                "1d",
+                "1w"
+              ],
+              "type": "string",
+              "default": "1d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 3650,
+              "minimum": 1,
+              "default": 180,
+              "title": "Window Days"
+            }
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Top N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SRCandidatesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}/refresh": {
+      "post": {
+        "summary": "Refresh Pair",
+        "description": "Fetch the most recent ``days`` worth of candles via the source adapter.",
+        "operationId": "refresh_pair_pairs__pair_id__refresh_post",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/charts": {
+      "get": {
+        "summary": "List Charts",
+        "operationId": "list_charts_charts_get",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 1000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChartListItemResponse"
+                  },
+                  "title": "Response List Charts Charts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Chart",
+        "description": "Create a new chart. 409 ``CHART_SLUG_CONFLICT`` if slug exists.",
+        "operationId": "create_chart_charts_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Chart"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chart"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/charts/{slug}": {
+      "get": {
+        "summary": "Get Chart",
+        "operationId": "get_chart_charts__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chart"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Chart",
+        "description": "Edit-in-place. 404 ``CHART_NOT_FOUND`` if slug doesn't exist.",
+        "operationId": "update_chart_charts__slug__put",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Chart"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chart"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Chart",
+        "operationId": "delete_chart_charts__slug__delete",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/charts/import": {
+      "post": {
+        "summary": "Import Chart",
+        "description": "Multipart upload of a ``chart.json`` file.\n\nGoes through ``chart_io.parse_chart_json`` so a ``schemaVersion``\nmismatch surfaces as ``SchemaVersionError`` (\u2192 422 SCHEMA_MISMATCH),\nnot a generic ``ValidationError``.",
+        "operationId": "import_chart_charts_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_chart_charts_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Chart"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/charts/{slug}/export": {
+      "get": {
+        "summary": "Export Chart",
+        "description": "Return the canonical ``chart.json`` payload (for download by the UI).",
+        "operationId": "export_chart_charts__slug__export_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Export Chart Charts  Slug  Export Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairs/{pair_id}/ai_runs": {
+      "get": {
+        "summary": "List Ai Runs",
+        "operationId": "list_ai_runs_pairs__pair_id__ai_runs_get",
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 1000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AIRunResponse"
+                  },
+                  "title": "Response List Ai Runs Pairs  Pair Id  Ai Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AIRun": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "prompt_template_version": {
+            "type": "string",
+            "title": "Prompt Template Version"
+          },
+          "context_file_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context File Sha256"
+          },
+          "context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Preview"
+          },
+          "sr_candidates_presented": {
+            "items": {
+              "$ref": "#/components/schemas/SRCandidate"
+            },
+            "type": "array",
+            "title": "Sr Candidates Presented"
+          },
+          "sr_candidates_selected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sr Candidates Selected"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "prompt_template_version",
+          "sr_candidates_presented",
+          "sr_candidates_selected"
+        ],
+        "title": "AIRun",
+        "description": "Audit record for an AI-produced chart. Populated only on AI charts."
+      },
+      "AIRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          },
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "chart_slug": {
+            "type": "string",
+            "title": "Chart Slug"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "prompt_template_version": {
+            "type": "string",
+            "title": "Prompt Template Version"
+          },
+          "context_file_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context File Sha256"
+          },
+          "context_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Preview"
+          },
+          "sr_candidates_selected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sr Candidates Selected"
+          },
+          "ran_at": {
+            "type": "integer",
+            "title": "Ran At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "pair_id",
+          "chart_slug",
+          "model",
+          "provider",
+          "prompt_template_version",
+          "sr_candidates_selected",
+          "ran_at"
+        ],
+        "title": "AIRunResponse"
+      },
+      "Anchor": {
+        "properties": {
+          "ts_utc": {
+            "type": "integer",
+            "title": "Ts Utc"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ts_utc",
+          "price"
+        ],
+        "title": "Anchor",
+        "description": "A single anchor on a drawing.\n\n``candidate_id`` is set on AI-created drawings to record which S/R\ncandidate the model picked (the price is then resolved server-side).\nOn user drawings ``candidate_id`` is ``None`` and ``price`` is whatever\nthe user dragged the line to."
+      },
+      "Body_import_chart_charts_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_chart_charts_import_post"
+      },
+      "CandleResponse": {
+        "properties": {
+          "ts_utc": {
+            "type": "integer",
+            "title": "Ts Utc"
+          },
+          "open": {
+            "type": "number",
+            "title": "Open"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          },
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "volume": {
+            "type": "number",
+            "title": "Volume"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts_utc",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume"
+        ],
+        "title": "CandleResponse"
+      },
+      "Chart": {
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "title": "Schemaversion",
+            "default": 1
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "pair": {
+            "type": "string",
+            "title": "Pair"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          },
+          "parent_chart_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Chart Id"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ChartData"
+          },
+          "view": {
+            "$ref": "#/components/schemas/ChartView"
+          },
+          "ai_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "title",
+          "pair",
+          "provenance",
+          "data",
+          "view"
+        ],
+        "title": "Chart",
+        "description": "A complete chart artifact \u2014 ``schemaVersion: 1``."
+      },
+      "ChartData": {
+        "properties": {
+          "default_window_days": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Default Window Days"
+          },
+          "default_interval": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "1d",
+              "1w"
+            ],
+            "title": "Default Interval"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "default_window_days",
+          "default_interval"
+        ],
+        "title": "ChartData",
+        "description": "Default time-window the chart was authored against. Relative ('last\nN days from now'), not absolute, so charts stay evergreen."
+      },
+      "ChartListItemResponse": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "prov_kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "ai"
+            ],
+            "title": "Prov Kind"
+          },
+          "prov_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prov Model"
+          },
+          "parent_chart_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Chart Slug"
+          },
+          "ai_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Run Id"
+          },
+          "updated_at_unix": {
+            "type": "integer",
+            "title": "Updated At Unix"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "pair_id",
+          "title",
+          "prov_kind",
+          "updated_at_unix"
+        ],
+        "title": "ChartListItemResponse"
+      },
+      "ChartView": {
+        "properties": {
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/Indicator"
+            },
+            "type": "array",
+            "title": "Indicators"
+          },
+          "drawings": {
+            "items": {
+              "$ref": "#/components/schemas/Drawing"
+            },
+            "type": "array",
+            "title": "Drawings"
+          },
+          "analysis_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ChartView"
+      },
+      "CreatePairRequest": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id",
+            "description": "Canonical id, e.g. 'coinbase:BTC-USD'"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id"
+        ],
+        "title": "CreatePairRequest"
+      },
+      "Drawing": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "trend",
+              "horizontal",
+              "fib",
+              "rect"
+            ],
+            "title": "Kind"
+          },
+          "anchors": {
+            "items": {
+              "$ref": "#/components/schemas/Anchor"
+            },
+            "type": "array",
+            "title": "Anchors"
+          },
+          "style": {
+            "$ref": "#/components/schemas/Style"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Provenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "anchors",
+          "style"
+        ],
+        "title": "Drawing",
+        "description": "A single drawing on a chart (trend line, horizontal, fib, rectangle).\n\n``provenance`` is **omitted** on user-created drawings (the chart-level\nprovenance covers them). It is **required** on AI-created drawings so\nrationale and confidence travel with each individual line."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "HealthResponse"
+      },
+      "Indicator": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Params"
+          },
+          "pane": {
+            "type": "integer",
+            "title": "Pane",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Indicator"
+      },
+      "IndicatorPointResponse": {
+        "properties": {
+          "ts_utc": {
+            "type": "integer",
+            "title": "Ts Utc"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts_utc",
+          "value"
+        ],
+        "title": "IndicatorPointResponse"
+      },
+      "IndicatorResponse": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "interval": {
+            "type": "string",
+            "title": "Interval"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Params"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorSeriesResponse"
+            },
+            "type": "array",
+            "title": "Series"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id",
+          "interval",
+          "name",
+          "params",
+          "series"
+        ],
+        "title": "IndicatorResponse"
+      },
+      "IndicatorSeriesResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "output_key": {
+            "type": "string",
+            "title": "Output Key"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorPointResponse"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "output_key",
+          "points"
+        ],
+        "title": "IndicatorSeriesResponse",
+        "description": "One named series. Multi-output indicators (MACD, BB) emit multiple."
+      },
+      "PairResponse": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "base": {
+            "type": "string",
+            "title": "Base"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "added_at": {
+            "type": "integer",
+            "title": "Added At"
+          },
+          "last_viewed_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Viewed At"
+          },
+          "is_pinned": {
+            "type": "boolean",
+            "title": "Is Pinned"
+          },
+          "pinned_context_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned Context Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id",
+          "base",
+          "quote",
+          "source",
+          "added_at",
+          "is_pinned"
+        ],
+        "title": "PairResponse"
+      },
+      "Provenance": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "ai"
+            ],
+            "title": "Kind"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "prompt_template_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Template Version"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "created_at"
+        ],
+        "title": "Provenance",
+        "description": "Who created this object and when. ``model`` is set only when\n``kind == \"ai\"``. ``confidence`` and ``rationale`` are typically only\nset on AI-created drawings; on chart-level provenance they're omitted."
+      },
+      "RefreshRequest": {
+        "properties": {
+          "interval": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "1d"
+            ],
+            "title": "Interval",
+            "default": "1d"
+          },
+          "days": {
+            "type": "integer",
+            "maximum": 730.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "title": "RefreshRequest"
+      },
+      "RefreshResponse": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "interval": {
+            "type": "string",
+            "title": "Interval"
+          },
+          "fetched": {
+            "type": "integer",
+            "title": "Fetched"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id",
+          "interval",
+          "fetched"
+        ],
+        "title": "RefreshResponse"
+      },
+      "SRCandidate": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "support",
+              "resistance"
+            ],
+            "title": "Kind"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "touches": {
+            "type": "integer",
+            "title": "Touches"
+          },
+          "strength_score": {
+            "type": "number",
+            "title": "Strength Score"
+          },
+          "first_seen": {
+            "type": "integer",
+            "title": "First Seen"
+          },
+          "last_touch": {
+            "type": "integer",
+            "title": "Last Touch"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "price",
+          "kind",
+          "method",
+          "touches",
+          "strength_score",
+          "first_seen",
+          "last_touch"
+        ],
+        "title": "SRCandidate",
+        "description": "One S/R candidate as presented to the LLM.\n\nThe full set is recorded in ``AIRun.sr_candidates_presented`` for audit\nso a future replay can know exactly what the model chose from."
+      },
+      "SRCandidateResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "support",
+              "resistance"
+            ],
+            "title": "Kind"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "touches": {
+            "type": "integer",
+            "title": "Touches"
+          },
+          "strength_score": {
+            "type": "number",
+            "title": "Strength Score"
+          },
+          "first_seen": {
+            "type": "integer",
+            "title": "First Seen"
+          },
+          "last_touch": {
+            "type": "integer",
+            "title": "Last Touch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "price",
+          "kind",
+          "method",
+          "touches",
+          "strength_score",
+          "first_seen",
+          "last_touch"
+        ],
+        "title": "SRCandidateResponse"
+      },
+      "SRCandidatesResponse": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "interval": {
+            "type": "string",
+            "title": "Interval"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SRCandidateResponse"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id",
+          "interval",
+          "candidates"
+        ],
+        "title": "SRCandidatesResponse"
+      },
+      "Style": {
+        "properties": {
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "dash": {
+            "type": "string",
+            "enum": [
+              "solid",
+              "dashed",
+              "dotted"
+            ],
+            "title": "Dash",
+            "default": "solid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "color"
+        ],
+        "title": "Style"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

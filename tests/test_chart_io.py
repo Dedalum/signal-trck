@@ -69,13 +69,19 @@ def test_write_creates_parent_dirs(tmp_path: Path) -> None:
 
 
 def test_read_rejects_unknown_schema_version(tmp_path: Path) -> None:
-    """Schema-version mismatch must surface as a validation error, not a silent load."""
+    """Schema-version mismatch raises a dedicated ``SchemaVersionError`` so the
+    API layer can map it to 422 ``SCHEMA_MISMATCH`` and the UI can surface a
+    dedicated modal — see Decision 24 in the Phase B plan."""
+    from signal_trck.chart_schema import SchemaVersionError
+
     path = tmp_path / "future.json"
     payload = chart_to_json_string(_user_chart())
     payload = payload.replace('"schemaVersion": 1', '"schemaVersion": 99')
     path.write_text(payload, encoding="utf-8")
-    with pytest.raises(ValidationError, match="unsupported schemaVersion 99"):
+    with pytest.raises(SchemaVersionError, match="unsupported schemaVersion 99") as excinfo:
         read_chart(path)
+    assert excinfo.value.file_version == 99
+    assert excinfo.value.app_version == 1
 
 
 def test_read_rejects_extra_fields(tmp_path: Path) -> None:

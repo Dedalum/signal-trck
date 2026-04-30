@@ -34,6 +34,25 @@ class Candle:
 
 
 @dataclass(frozen=True, slots=True)
+class ChartListItem:
+    """Summary view of a chart for sidebar listings.
+
+    Drops the full ``drawings`` and ``indicator_refs`` payload so a list
+    response doesn't drag a chart's entire shape around. Use ``Store.get_chart``
+    when you need the full ``Chart`` model.
+    """
+
+    slug: str
+    pair_id: str
+    title: str
+    prov_kind: str
+    prov_model: str | None
+    parent_chart_slug: str | None
+    ai_run_id: int | None
+    updated_at_unix: int
+
+
+@dataclass(frozen=True, slots=True)
 class AIRunRow:
     """An ``ai_runs`` audit row, with the JSON columns parsed.
 

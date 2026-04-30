@@ -22,6 +22,7 @@ from signal_trck.chart_schema.models import (
     Indicator,
     Provenance,
     ProvenanceKind,
+    SchemaVersionError,
     SRCandidate,
     Style,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "Indicator",
     "Provenance",
     "ProvenanceKind",
+    "SchemaVersionError",
     "SRCandidate",
     "Style",
 ]

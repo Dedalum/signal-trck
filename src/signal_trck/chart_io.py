@@ -11,19 +11,37 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from signal_trck.chart_schema import Chart
+from signal_trck.chart_schema import Chart, SchemaVersionError
+from signal_trck.chart_schema.models import SCHEMA_VERSION
 
 
 def read_chart(path: str | Path) -> Chart:
     """Load a chart.json file and validate against the v1 schema.
 
-    Raises ``ValidationError`` from Pydantic on malformed input, with
-    actionable messages (extra fields rejected, schemaVersion check, etc.).
+    Raises ``SchemaVersionError`` if the file declares a ``schemaVersion``
+    that doesn't match the running build. Raises ``ValidationError`` from
+    Pydantic on other malformed input (extra fields, type mismatches, etc.).
     """
     p = Path(path)
     payload = p.read_text(encoding="utf-8")
-    return Chart.model_validate_json(payload)
+    return parse_chart_json(payload)
+
+
+def parse_chart_json(payload: str) -> Chart:
+    """Parse a chart.json string into a ``Chart`` model.
+
+    Schema-version check runs **before** Pydantic so callers get a clean
+    ``SchemaVersionError`` rather than the wrapped ``ValidationError`` that
+    Pydantic's ``model_validator`` would produce.
+    """
+    raw: Any = json.loads(payload)
+    if isinstance(raw, dict):
+        version = raw.get("schemaVersion")
+        if isinstance(version, int) and version != SCHEMA_VERSION:
+            raise SchemaVersionError(version, SCHEMA_VERSION)
+    return Chart.model_validate(raw)
 
 
 def write_chart(chart: Chart, path: str | Path) -> Path:

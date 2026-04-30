@@ -90,6 +90,98 @@ MIGRATIONS: list[list[str]] = [
         ON ai_runs(pair_id, chart_slug, ran_at DESC)
         """,
     ],
+    # v4 — Phase B: charts + drawings + indicator_refs + indicator_values index
+    # reorder.
+    #
+    # The index reorder (Performance M1 from todos/010) matches the actual query
+    # pattern: `WHERE pair_id=? AND interval=? AND params_hash=? AND name IN (...)`.
+    # Putting params_hash before name lets the planner use the index even when
+    # the IN-list expands. Bundled here per Decision 12 to avoid a v3.5 just for
+    # an index swap.
+    [
+        # charts: one row per saved chart, slug-keyed.
+        """
+        CREATE TABLE IF NOT EXISTS charts (
+            slug TEXT PRIMARY KEY,
+            pair_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            default_window_days INTEGER NOT NULL,
+            default_interval TEXT NOT NULL,
+            parent_chart_slug TEXT,
+            analysis_text TEXT,
+            ai_run_id INTEGER,
+            prov_kind TEXT NOT NULL,
+            prov_model TEXT,
+            prov_prompt_template_version TEXT,
+            prov_created_at TEXT NOT NULL,
+            created_at_unix INTEGER NOT NULL,
+            updated_at_unix INTEGER NOT NULL,
+            FOREIGN KEY (pair_id) REFERENCES pairs(pair_id) ON DELETE CASCADE,
+            FOREIGN KEY (ai_run_id) REFERENCES ai_runs(run_id) ON DELETE SET NULL,
+            CHECK (prov_kind IN ('user', 'ai'))
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_charts_pair_updated
+        ON charts(pair_id, updated_at_unix DESC)
+        """,
+        # drawings: per-chart, JSON anchors + JSON style.
+        # Composite PK (chart_slug, drawing_id) — drawing IDs are scoped to
+        # the chart they live on, so a chart import never collides with
+        # an already-imported chart's drawing IDs.
+        """
+        CREATE TABLE IF NOT EXISTS drawings (
+            chart_slug TEXT NOT NULL,
+            drawing_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            anchors_json TEXT NOT NULL,
+            style_json TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            prov_kind TEXT,
+            prov_model TEXT,
+            prov_created_at TEXT,
+            prov_confidence REAL,
+            prov_rationale TEXT,
+            PRIMARY KEY (chart_slug, drawing_id),
+            FOREIGN KEY (chart_slug) REFERENCES charts(slug) ON DELETE CASCADE,
+            CHECK (kind IN ('trend', 'horizontal', 'rect', 'fib')),
+            CHECK (prov_kind IS NULL OR prov_kind IN ('user', 'ai'))
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_drawings_chart_order
+        ON drawings(chart_slug, order_index ASC)
+        """,
+        # indicator_refs: which indicators a chart shows + on which pane.
+        """
+        CREATE TABLE IF NOT EXISTS indicator_refs (
+            chart_slug TEXT NOT NULL,
+            indicator_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            pane INTEGER NOT NULL,
+            PRIMARY KEY (chart_slug, indicator_id),
+            FOREIGN KEY (chart_slug) REFERENCES charts(slug) ON DELETE CASCADE
+        )
+        """,
+        # Slug allocator: auto-incrementing per-pair slug counter.
+        """
+        CREATE TABLE IF NOT EXISTS chart_slug_seq (
+            pair_id TEXT PRIMARY KEY,
+            next_n INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (pair_id) REFERENCES pairs(pair_id) ON DELETE CASCADE
+        )
+        """,
+        # Indicator values index reorder: drop the old, create the new.
+        # Old: (pair_id, interval, name, params_hash, ts_utc DESC)
+        # New: (pair_id, interval, params_hash, name, ts_utc DESC)
+        "DROP INDEX IF EXISTS idx_indicator_values_lookup",
+        """
+        CREATE INDEX IF NOT EXISTS idx_indicator_values_lookup
+        ON indicator_values(pair_id, interval, params_hash, name, ts_utc DESC)
+        """,
+    ],
 ]
 
 

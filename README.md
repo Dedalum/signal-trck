@@ -16,8 +16,9 @@ for the full design.
 
 ## Status
 
-**Phase A complete.** Web UI follows in Phase B. Currently shipped:
+**Phases A + B complete.** Phase C (AI rationale UI) follows. Currently shipped:
 
+**Phase A (data + analytics + AI CLI):**
 - Coinbase Advanced Trade public-market adapter (no auth required)
 - SQLite storage with WAL, source-namespaced canonical pair IDs
 - Token-bucket rate limiting per adapter
@@ -32,7 +33,27 @@ for the full design.
 - AI run audit table for replay/diagnosis
 - CLI: `pair add|list`, `fetch`, `indicators sma|ema|rsi|macd|bb`, `levels`,
   `ai analyze`, `dev seed|info`
-- structlog with `--log-format json` mode
+- structlog with `--log-format json` mode + API-key redaction processor
+
+**Phase B (web UI + FastAPI):**
+- FastAPI surface (3 files: `app.py` + `routes.py` + `errors.py`) with
+  14 routes — pairs, candles, indicators, S/R candidates, charts CRUD,
+  refresh, AI run audit (read-only)
+- `signal-trck serve` command — uvicorn boot, hardcoded `127.0.0.1` bind
+- DB migration v4: `charts`, `drawings`, `indicator_refs` tables +
+  `indicator_values` index reorder
+- `Store.create_chart` / `update_chart` / `get_chart` / `list_charts` /
+  `delete_chart` / `next_slug` / `remove_pair`
+- `chart.json` round-trip through the DB (full Pydantic equivalence)
+- Vite + React 18 + zustand + Lightweight Charts v5 frontend
+- Two-column layout: pair list + chart canvas with toolbar
+- Indicator overlays + sub-panes; Save / Save As / Export / Import
+- Drawing layer: trend lines, horizontal S/R lines, rectangles
+  (custom-on-`ISeriesPrimitive` since the difurious plugin isn't on npm)
+- Phase C scaffolding: dashed stroke for AI provenance,
+  `onDrawingClick(drawing)` event surface
+- `mypy --strict` gate on `api/`; `tsconfig` strict + extras
+- API-key sentinel test pinning the no-key-on-the-wire invariant
 
 ## Quick start
 
@@ -49,10 +70,39 @@ signal-trck pair list
 
 # inspect what's in the DB
 signal-trck dev info
+
+# launch the web UI (requires the frontend built once — see below)
+signal-trck serve            # binds 127.0.0.1:8000
 ```
 
 The DB lives at `~/.signal-trck/db.sqlite` by default
 (override with `SIGNAL_TRCK_HOME=/path`).
+
+## Web UI
+
+```bash
+# one-time: install frontend deps + generate API types from FastAPI
+cd web
+npm install
+npm run gen-types        # reads ../web/openapi.json — regenerate after backend changes
+
+# dev mode (hot reload):
+# Terminal 1:
+SIGNAL_TRCK_DEV=1 signal-trck serve --reload      # FastAPI on :8000 with CORS for :5173
+# Terminal 2:
+cd web && npm run dev                              # Vite dev server on :5173
+
+# prod-ish single-command:
+cd web && npm run build                            # builds web/dist/
+signal-trck serve                                  # FastAPI on :8000 (no CORS)
+```
+
+To regenerate `openapi.json` after backend changes:
+
+```bash
+.venv/bin/python -c "import json; from signal_trck.api import app; print(json.dumps(app.openapi(), indent=2))" > web/openapi.json
+cd web && npm run gen-types
+```
 
 ## Pair IDs
 
@@ -115,8 +165,10 @@ override the env defaults per run.
 - **Phase A.1** — Data layer + adapters + CLI scaffolding. ✅
 - **Phase A.2** — Indicators (TA-Lib) + S/R candidate engine + chart_schema. ✅
 - **Phase A.3** — `signal-trck ai analyze` with `instructor` (provider-agnostic). ✅
-- **Phase B** — Web UI: Vite + TS + Lightweight Charts v5 + drawing tools.
-- **Phase C** — AI artifacts in the UI.
-- **Phase D** — Markdown context + Obsidian sink + polish.
+- **Phase B.1** — FastAPI backend + Vite/React frontend + chart persistence. ✅
+- **Phase B.2** — Drawing layer (trend / horizontal / rectangle). ✅
+- **Phase C** — AI artifacts in the UI: rationale + trace panels, "Run AI
+  analysis" copy-CLI modal, third column.
+- **Phase D** — Markdown context + Obsidian sink + scheduler + polish.
 
-See the plan for details and the rationale behind each decision.
+See the plans for details and the rationale behind each decision.

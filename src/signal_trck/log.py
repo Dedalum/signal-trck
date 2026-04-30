@@ -1,15 +1,41 @@
-"""structlog setup with run-id correlation."""
+"""structlog setup with run-id correlation + API-key redaction."""
 
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 
 LogFormat = Literal["console", "json"]
+
+
+# Redact provider API keys if anything ever tries to log them. The CLI / API
+# layers should never emit keys to logs, but defense-in-depth + the
+# `tests/api/test_api_key_redaction.py` sentinel check pin this behavior.
+_KEY_FIELD_RE = re.compile(r"(?i)(API_KEY|TOKEN|SECRET|AUTHORIZATION)$")
+_KEY_VALUE_RE = re.compile(r"sk-[A-Za-z0-9_\-]{8,}|sk-ant-[A-Za-z0-9_\-]{8,}")
+
+
+def _redact_api_keys(
+    _logger: object, _method: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Redact API-key-shaped values from log records.
+
+    Catches both fields whose names match ``*_API_KEY`` (etc.) and values
+    that look like provider keys. Replaces value with ``"***"``.
+    """
+    for k in list(event_dict.keys()):
+        v = event_dict[k]
+        if _KEY_FIELD_RE.search(k):
+            event_dict[k] = "***"
+            continue
+        if isinstance(v, str) and _KEY_VALUE_RE.search(v):
+            event_dict[k] = _KEY_VALUE_RE.sub("***", v)
+    return event_dict
 
 
 def configure(level: str = "INFO", fmt: LogFormat = "console") -> None:
@@ -23,6 +49,7 @@ def configure(level: str = "INFO", fmt: LogFormat = "console") -> None:
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         timestamper,
+        _redact_api_keys,
         structlog.processors.StackInfoRenderer(),
     ]
 

@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from signal_trck.storage.models import Candle
 
 
+@runtime_checkable
 class CandleAdapter(Protocol):
-    """Fetch OHLCV candles from a single price source."""
+    """Fetch OHLCV candles from a single price source.
+
+    Adapters are async context managers — `async with adapter:` opens any
+    HTTP client they own and `__aexit__` closes it.
+    """
 
     source: str
+
+    async def __aenter__(self) -> CandleAdapter:
+        ...
+
+    async def __aexit__(self, *exc: object) -> None:
+        ...
 
     async def fetch_candles(
         self,

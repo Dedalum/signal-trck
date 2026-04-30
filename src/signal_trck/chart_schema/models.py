@@ -19,6 +19,24 @@ ProvenanceKind = Literal["user", "ai"]
 DrawingKind = Literal["trend", "horizontal", "fib", "rect"]
 
 
+class SchemaVersionError(ValueError):
+    """Raised when a chart.json declares an unsupported ``schemaVersion``.
+
+    Distinct from generic ``ValidationError`` so the API layer can map it to
+    a 422 ``SCHEMA_MISMATCH`` response and the UI can surface a dedicated
+    modal (Decision 24 in `plans/feat-phase-b-web-ui-fastapi.md`).
+    """
+
+    def __init__(self, file_version: int, app_version: int = SCHEMA_VERSION) -> None:
+        self.file_version = file_version
+        self.app_version = app_version
+        super().__init__(
+            f"unsupported schemaVersion {file_version}; this build writes "
+            f"v{app_version}. Re-export from a matching signal-trck or write a "
+            f"one-shot migration in scripts/."
+        )
+
+
 class _BaseModel(BaseModel):
     """Common config: frozen, populate by name, forbid extras to catch typos."""
 
@@ -174,11 +192,7 @@ class Chart(_BaseModel):
     @model_validator(mode="after")
     def _validate_schema_version(self) -> Chart:
         if self.schema_version != SCHEMA_VERSION:
-            raise ValueError(
-                f"unsupported schemaVersion {self.schema_version}; this build "
-                f"writes v{SCHEMA_VERSION}. Re-export from a matching signal-trck "
-                f"or write a one-shot migration in scripts/."
-            )
+            raise SchemaVersionError(self.schema_version, SCHEMA_VERSION)
         return self
 
     @model_validator(mode="after")

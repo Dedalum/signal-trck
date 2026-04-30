@@ -11,6 +11,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+class PairIdError(ValueError):
+    """Raised when a pair id string is malformed.
+
+    Subclass of ``ValueError`` so existing callers that catch ``ValueError``
+    keep working; the API layer maps it to 400 ``INVALID_PAIR_ID``.
+    """
+
+
 @dataclass(frozen=True)
 class PairId:
     source: str
@@ -33,17 +41,17 @@ class PairId:
 def parse(s: str) -> PairId:
     """Parse a pair string. Accepts ``coinbase:BTC-USD`` only.
 
-    Raises ``ValueError`` for ambiguous or malformed input.
+    Raises ``PairIdError`` for ambiguous or malformed input.
     """
     if ":" not in s:
-        raise ValueError(
+        raise PairIdError(
             f"pair id must be '{{source}}:{{base}}-{{quote}}' (got {s!r}); "
             f"example: 'coinbase:BTC-USD'"
         )
     source, _, rest = s.partition(":")
     if not source or "-" not in rest:
-        raise ValueError(f"malformed pair id {s!r}; example: 'coinbase:BTC-USD'")
+        raise PairIdError(f"malformed pair id {s!r}; example: 'coinbase:BTC-USD'")
     base, _, quote = rest.partition("-")
     if not base or not quote:
-        raise ValueError(f"malformed pair id {s!r}; example: 'coinbase:BTC-USD'")
+        raise PairIdError(f"malformed pair id {s!r}; example: 'coinbase:BTC-USD'")
     return PairId(source=source.lower(), base=base.upper(), quote=quote.upper())
